@@ -3,6 +3,11 @@
 # GNU General Public License v3.0+ (see LICENSES/GPL-3.0-or-later.txt or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+- name: Set cargo home
+  set_fact:
+    cargo_environment:
+      CARGO_HOME: "{{ [lookup('env', 'HOME'), '.cargo'] | path_join }}"
+
 - block:
     - name: Install cargo
       package:
@@ -34,9 +39,9 @@
         dest: /tmp/sh.rustup.rs
         mode: "0750"
         force: true
+
     - name: Install rustup cargo
       command: /tmp/sh.rustup.rs -y
+
     - set_fact:
-        rustup_cargo_bin: "{{ lookup('env', 'HOME') }}/.cargo/bin/cargo"
-  when:
-    - ansible_facts.distribution != 'CentOS' or ansible_facts.distribution_version is version('7.0', '>=')
+        rustup_cargo_bin: "{{ cargo_environment.CARGO_HOME }}/bin/cargo"
