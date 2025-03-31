@@ -3,6 +3,19 @@
 # GNU General Public License v3.0+ (see LICENSES/GPL-3.0-or-later.txt or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+- name: Set cargo home
+  set_fact:
+    cargo_environment:
+      CARGO_HOME: "{{ [lookup('env', 'HOME'), '.cargo'] | path_join }}"
+
+- name: Set special environment to work around cargo bugs
+  when: ansible_distribution == 'Alpine'
+  set_fact:
+    cargo_environment:
+      # See https://github.com/rust-lang/cargo/issues/10230#issuecomment-1201662729:
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+      CARGO_HOME: "{{ [lookup('env', 'HOME'), '.cargo'] | path_join }}"
+
 - block:
     - name: Install cargo
       package:
@@ -27,16 +40,18 @@
   when:
     - ansible_system == 'FreeBSD' and ansible_distribution_version is version('13.0', '>')
 
-- block:
+- when:
+    - ansible_distribution != 'CentOS' or ansible_distribution_version is version('7.0', '>=')
+  block:
     - name: Download rustup
       get_url:
         url: https://sh.rustup.rs
         dest: /tmp/sh.rustup.rs
         mode: "0750"
         force: true
+
     - name: Install rustup cargo
       command: /tmp/sh.rustup.rs -y
+
     - set_fact:
-        rustup_cargo_bin: "{{ lookup('env', 'HOME') }}/.cargo/bin/cargo"
-  when:
-    - ansible_distribution != 'CentOS' or ansible_distribution_version is version('7.0', '>=')
+        rustup_cargo_bin: "{{ cargo_environment.CARGO_HOME }}/bin/cargo"

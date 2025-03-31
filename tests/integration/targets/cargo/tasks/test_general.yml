@@ -3,11 +3,24 @@
 # GNU General Public License v3.0+ (see LICENSES/GPL-3.0-or-later.txt or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+- debug:
+    msg: "{{ lookup('cargo_bins') }}"
+
+- name: no binaries installed
+  assert:
+    that: "{{ (lookup('cargo_bins') | length) == 0 }}"
+
 - name: Ensure application helloworld is uninstalled
   community.general.cargo:
     state: absent
     name: helloworld
   register: uninstall_absent_helloworld
+
+- name: already absent
+  assert:
+    that:
+      - "{{ (lookup('cargo_bins') | length) == 0 }}"
+      - uninstall_absent_helloworld is not changed
 
 - name: Install application helloworld
   community.general.cargo:
