@@ -52,6 +52,11 @@ options:
     type: bool
     default: true
     version_added: 11.0.0
+  bin:
+    description: Install only the specified binary
+    type: str
+    required: false
+    version_added: 10.7.0
   version:
     description: The version to install. If O(name) contains multiple values, the module will try to install all of them in
       this version.
@@ -197,6 +202,7 @@ class Cargo:
         self.executable = [kwargs["executable"] or module.get_bin_path("cargo", True)]
         self.name = kwargs["name"]
         self.path = kwargs["path"]
+        self.bin = kwargs["bin"]
         self.state = kwargs["state"]
         self.version = kwargs["version"]
         self.locked = kwargs["locked"]
@@ -357,6 +363,9 @@ class Cargo:
             if self.git.get("rev"):
                 cmd.extend(["--rev", self.git["rev"]])
 
+        if self.bin:
+            cmd.extend(["--bin", self.bin])
+
         return self._exec(cmd)
 
     def get_latest(self, package: package_type, cache: bool = True) -> package_type:
@@ -506,6 +515,7 @@ def main():
         executable=dict(default=None, type="path"),
         name=dict(required=True, type="list", elements="str"),
         path=dict(default=None, type="path"),
+        bin=dict(default=None, type="str"),
         state=dict(default="present", choices=["present", "absent", "latest"]),
         version=dict(default=None, type="str"),
         locked=dict(default=False, type="bool"),
