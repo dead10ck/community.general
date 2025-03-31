@@ -33,11 +33,24 @@ options:
       - When this is omitted, currently installed crates are returned.
     type: list
     elements: str
-    required: false
   path:
     description: The base path where to install the Rust packages. Cargo automatically appends V(/bin). In other words, V(/usr/local)
       becomes V(/usr/local/bin).
     type: path
+  features:
+    description: Features to install. If O(default_features=false) is given,
+      then these are the only features chosen; otherwise, they are in addition
+      to the crate's default features.
+    type: list
+    elements: str
+    default: []
+    version_added: 11.0.0
+  default_features:
+    description: Whether the crate's default features should be installed. If
+      set to V(false), only features from O(features) will be installed.
+    type: bool
+    default: true
+    version_added: 11.0.0
   version:
     description: The version to install. If O(name) contains multiple values, the module tries to install all of them in this
       version.
@@ -61,20 +74,12 @@ options:
       - This is only used when installing packages.
     type: path
     version_added: 9.1.0
-  features:
     description:
-      - List of features to activate.
-      - This is only used when installing packages.
-    type: list
-    elements: str
-    default: []
-    version_added: 11.0.0
   git:
     description:
       - Crate from a git repository.
     type: dict
     version_added: 10.7.0
-    required: false
     options:
       url:
         description:
@@ -151,6 +156,15 @@ EXAMPLES = r"""
     state: latest
     git: https://github.com/astral-sh/uv
     tag: 0.6.11
+
+- name: Install "starship" Rust package with only the given features
+  community.general.cargo:
+    name: starship
+    state: latest
+    default_features: false
+    features:
+      - notify
+      - gix-max-perf
 """
 
 import json
@@ -191,6 +205,7 @@ class Cargo:
         self.locked = kwargs["locked"]
         self.directory = kwargs["directory"]
         self.features = kwargs["features"]
+        self.default_features = kwargs["default_features"]
         self.git: dict[str, str] = kwargs["git"]
 
     @property
@@ -318,6 +333,9 @@ class Cargo:
 
         if self.features:
             cmd += ["--features", ",".join(self.features)]
+
+        if not self.default_features:
+            cmd.append("--no-default-features")
 
         if self.git:
             if (packages and len(packages) > 1) or len(self.names) > 1:
@@ -480,6 +498,7 @@ def main():
         locked=dict(default=False, type="bool"),
         directory=dict(type="path"),
         features=dict(default=[], type="list", elements="str"),
+        default_features=dict(default=True, type="bool"),
         git=dict(
             type="dict",
             options=dict(
@@ -501,6 +520,8 @@ def main():
     state = module.params["state"]
     version = module.params["version"]
     directory = module.params["directory"]
+    features = module.params["features"]
+    default_features = module.params["default_features"]
     git = module.params["git"]
 
     diff = []
@@ -555,6 +576,12 @@ def main():
             if (package_name not in installed_packages)
             or (version and version != installed_packages[package_name]["version"])
             or (git and git != git_installed_fields.get(package_name))
+            or (features and features != installed_packages[package_name]["features"])
+            or (
+                default_features
+                and default_features
+                != installed_packages[package_name]["default_features"]
+            )
         ]
 
         if to_install:
