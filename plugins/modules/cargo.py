@@ -69,6 +69,33 @@ options:
     elements: str
     default: []
     version_added: 11.0.0
+  git:
+    description:
+      - Crate from a git repository.
+    type: dict
+    version_added: 10.7.0
+    required: false
+    options:
+      url:
+        description:
+          - URL of the git repository.
+        type: str
+        required: true
+      tag:
+        description:
+          - Tag of the git repository.
+        type: str
+        required: false
+      branch:
+        description:
+          - Branch of the git repository.
+        type: str
+        required: false
+      rev:
+        description:
+          - Revision (specific commit hash) of the git repository.
+        type: str
+        required: false
 requirements:
   - cargo installed
 """
@@ -117,6 +144,13 @@ EXAMPLES = r"""
     name: serpl
     features:
       - ast_grep
+
+- name: Install "uv" Rust package from git repo
+  community.general.cargo:
+    name: uv
+    state: latest
+    git: https://github.com/astral-sh/uv
+    tag: 0.6.11
 """
 
 import json
@@ -126,9 +160,10 @@ import sys
 import typing
 from pathlib import Path
 from typing import Collection, Optional, Tuple, Union
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.common.text.converters import to_text
 
 
 # runtime compatibility with Python < 3.8
@@ -156,6 +191,7 @@ class Cargo:
         self.locked = kwargs["locked"]
         self.directory = kwargs["directory"]
         self.features = kwargs["features"]
+        self.git: dict[str, str] = kwargs["git"]
 
     @property
     def path(self):
@@ -206,6 +242,34 @@ class Cargo:
             if pkg_parts.get("kind") == "path" and pkg_url and pkg_url.path:
                 pkg_parts["directory"] = pkg_url.path
 
+            elif pkg_parts.get("kind") == "git":
+                git_meta: dict[str, str] = {}
+
+                pkg_url_query = (
+                    pkg_url
+                    and pkg_url.query
+                    and typing.cast(dict[str, list[str]], parse_qs(pkg_url.query))
+                )
+
+                # this populates `tag`
+                if pkg_url_query and isinstance(pkg_url_query, dict):
+                    git_meta.update(typing.cast(dict[str, str], pkg_url_query))
+
+                if pkg_url and pkg_url.fragment:
+                    # despite the documented format in the above package ID spec,
+                    # for git packages, the actual cargo implementation uses a
+                    # commit hash in the URL fragment
+                    #
+                    # see https://github.com/rust-lang/cargo/blob/c5f58e97c995652a870e0007501b602245a0bdff/src/cargo/core/source_id.rs#L714
+                    git_meta["rev"] = to_text(pkg_url.fragment)
+
+                if not git_meta:
+                    self.module.fail_json(
+                        msg=f"unexpected git package identifier: {pkg_url}"
+                    )
+
+                pkg_parts["git"] = git_meta
+
             if not isinstance(meta, dict):
                 self.module.fail_json(msg=f"unexpected metadata in {self._crates_json}: '{meta}'")
 
@@ -254,6 +318,24 @@ class Cargo:
 
         if self.features:
             cmd += ["--features", ",".join(self.features)]
+
+        if self.git:
+            if (packages and len(packages) > 1) or len(self.names) > 1:
+                self.module.fail_json(
+                    msg="Cannot do multiple git installs at a time. Please specify only one package."
+                )
+
+            cmd.extend(["--git", self.git["url"]])
+
+            if self.git.get("tag"):
+                cmd.extend(["--tag", self.git["tag"]])
+
+            if self.git.get("branch"):
+                cmd.extend(["--branch", self.git["branch"]])
+
+            if self.git.get("rev"):
+                cmd.extend(["--rev", self.git["rev"]])
+
         return self._exec(cmd)
 
     def get_latest(self, package: package_type, cache: bool = True) -> package_type:
@@ -262,6 +344,11 @@ class Cargo:
 
         if self.directory:
             latest = self.get_source_directory_version(package)
+        elif self.git:
+            if self.git.get("rev"):
+                latest = package | {"rev": self.git["rev"]}
+            else:
+                latest = self.get_latest_git_oid(package)
         else:
             latest = self.get_latest_published_version(package)
 
@@ -307,6 +394,42 @@ class Cargo:
         return installed_package | {
             "version": typing.cast(package_type, directory_package)["version"],
             "directory": self.directory,
+        }
+
+    def get_latest_git_oid(self, package: package_type) -> package_type:
+        cmd = [
+            "git",
+            "ls-remote",
+            self.git["url"],
+        ]
+
+        if self.git.get("tags"):
+            ref = f"refs/tags/{self.git.get('tags')}"
+        elif self.git.get("branch"):
+            ref = f"refs/heads/{self.git.get('branch')}"
+
+        cmd.append(ref)
+
+        _, out, _ = self.module.run_command(cmd, check_rc=True)
+        out = out.strip()
+
+        if not out:
+            self.module.fail_json(
+                msg=f"remote {self.git['url']} does not have ref: {ref}"
+            )
+
+        out_parts = out.strip().split("\t")
+
+        if len(out_parts) != 2:
+            self.module.fail_json(
+                msg=f"got unexpected output from git ls-remote: {out}"
+            )
+
+        latest_rev = out_parts[0]
+        return package | {
+            "git": (
+                {key: val for key, val in self.git.items() if val} | {"rev": latest_rev}
+            )
         }
 
     def uninstall(self, packages=None):
@@ -357,12 +480,28 @@ def main():
         locked=dict(default=False, type="bool"),
         directory=dict(type="path"),
         features=dict(default=[], type="list", elements="str"),
+        git=dict(
+            type="dict",
+            options=dict(
+                url=dict(required=True, type="str"),
+                tag=dict(type="str"),
+                branch=dict(type="str"),
+                rev=dict(type="str"),
+            ),
+        ),
     )
-    module = AnsibleModule(argument_spec=arg_spec, supports_check_mode=True)
+
+    module = AnsibleModule(
+        argument_spec=arg_spec,
+        mutually_exclusive=[("version", "git")],
+        supports_check_mode=True,
+    )
+
     names = module.params["name"]
     state = module.params["state"]
     version = module.params["version"]
     directory = module.params["directory"]
+    git = module.params["git"]
 
     diff = []
 
@@ -391,11 +530,31 @@ def main():
     new_installed_packages = installed_packages.copy()
 
     if state == "present":
+        # for state == present, we only want to ensure that the input git
+        # parameters are true; but when we fetch the installed package data, it
+        # includes everything, including tag and rev together, for example. so
+        # we are only interested in the git metadata that is relevant to what
+        # the user specified
+        git_fields = set(git.keys()) if git else {}
+        git_installed_fields = {
+            package_name: (
+                {
+                    key: val
+                    for key, val in installed_packages[package_name]
+                    .get("git", {})
+                    .items()
+                    if package_name in installed_packages and key in git_fields
+                }
+            )
+            for package_name in names
+        }
+
         to_install = [
             package_name
             for package_name in names
             if (package_name not in installed_packages)
             or (version and version != installed_packages[package_name]["version"])
+            or (git and git != git_installed_fields.get(package_name))
         ]
 
         if to_install:
@@ -407,6 +566,7 @@ def main():
                     "version",
                     "features",
                     "default_features",
+                    "git",
                 ]
                 if module.params.get(field)
             }
