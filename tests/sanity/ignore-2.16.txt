@@ -9,6 +9,7 @@ plugins/inventory/scaleway.py yamllint:unparsable-with-libyaml
 plugins/inventory/virtualbox.py yamllint:unparsable-with-libyaml
 plugins/lookup/binary_file.py validate-modules:invalid-documentation
 plugins/lookup/dependent.py validate-modules:unidiomatic-typecheck
+plugins/modules/cargo.py validate-modules:import-error # future import for annotations needed after other imports
 plugins/modules/consul_session.py validate-modules:parameter-state-invalid-choice
 plugins/modules/homectl.py import-3.11  # Uses deprecated stdlib library 'crypt'
 plugins/modules/homectl.py import-3.12  # Uses deprecated stdlib library 'crypt'
