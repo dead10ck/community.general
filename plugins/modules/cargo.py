@@ -106,6 +106,16 @@ options:
           - Revision (specific commit hash) of the git repository.
         type: str
         required: false
+  argv:
+    description:
+      - Custom list of arguments to pass to C(cargo).
+      - Useful for any options not explicitly supported by this module.
+      - When this is used, no assumptions can be made about whether the package
+        would need to be reinstalled, so changes are always assumed.
+    type: list
+    elements: str
+    required: false
+    version_added: 9.1.0
 requirements:
   - cargo installed
 """
@@ -170,6 +180,16 @@ EXAMPLES = r"""
     features:
       - notify
       - gix-max-perf
+
+- name: Install package with custom CLI args
+  community.general.cargo:
+    name: mypackage
+    state: latest
+    argv:
+      - --registry
+      - myregistry
+      - --target-dir
+      - /some/path
 """
 
 import json
@@ -213,6 +233,8 @@ class Cargo:
         self.features = kwargs["features"]
         self.default_features = kwargs["default_features"]
         self.git: dict[str, str] = kwargs["git"]
+
+        self.argv = kwargs["argv"]
 
     @property
     def path(self):
@@ -361,6 +383,9 @@ class Cargo:
 
         if self.bin:
             cmd.extend(["--bin", self.bin])
+
+        if self.argv:
+            cmd.extend(self.argv)
 
         return self._exec(cmd)
 
@@ -517,11 +542,14 @@ def main():
                 rev=dict(type="str"),
             ),
         ),
+        argv=dict(type="list", elements="str"),
     )
 
     module = AnsibleModule(
         argument_spec=arg_spec,
-        mutually_exclusive=[("version", "git")],
+        mutually_exclusive=[
+            ("version", "git", "directory"),
+        ],
         supports_check_mode=True,
     )
 
@@ -532,7 +560,8 @@ def main():
     features = module.params["features"]
     default_features = module.params["default_features"]
     git = module.params["git"]
-
+    argv = module.params["argv"]
+  
     diff = []
 
     cargo = Cargo(module, **module.params)
@@ -591,6 +620,7 @@ def main():
                 and default_features
                 != installed_packages[package_name]["default_features"]
             )
+            or argv
         ]
 
         if to_install:
@@ -649,14 +679,20 @@ def main():
         module.fail_json(msg=f"unknown state: {state}")
 
     diff = _diff_installed_packages(installed_packages, new_installed_packages)
+    changed = bool(diff) or (state != "absent" and argv)
 
     result = {
-        "changed": bool(diff),
+        "changed": changed,
         "stdout": out,
         "stderr": err,
         "invocation": module.params,
         "installed": new_installed_packages,
     }
+
+    if argv:
+        result["warnings"] = result.get("warnings", []) + [
+            "changes are always assumed when using argv"
+        ]
 
     if module._diff:
         # Remove `bin_stats` from the returned diff. They are too verbose
