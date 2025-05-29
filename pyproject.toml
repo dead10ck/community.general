@@ -1,0 +1,42 @@
+[build-system]
+build-backend = "hatchling.build"
+requires = [ "hatchling" ]
+
+[project]
+name = "community.general"
+version = "1.0.0"
+requires-python = ">=3.12"
+
+dependencies = [
+  "ansible",
+]
+
+[dependency-groups]
+dev = [
+  "yamllint",
+]
+
+[tool.hatch.build.targets.wheel]
+include = ["*.py"]
+
+[tool.hatch.envs.default]
+installer = "uv"
+path = ".venv"
+
+post-install-commands = [
+  "uv sync",
+]
+
+[tool.hatch.envs.default.env-vars]
+UV_PROJECT_ENVIRONMENT = ".venv"
+
+[tool.hatch.envs.hatch-uv]
+dependencies = [
+  "uv>=0.6.5",
+]
+
+[tool.ruff.lint]
+ignore = [
+  "E402",
+  "F404",
+]
