@@ -36,6 +36,11 @@ options:
     description: The base path where to install the Rust packages. Cargo automatically appends V(/bin). In other words, V(/usr/local)
       will become V(/usr/local/bin).
     type: path
+  profile:
+    description: Profile to install with.
+    type: str
+    required: false
+    version_added: 10.7.0
   features:
     description: Features to install. If O(default_features=false) is given,
       then these are the only features chosen; otherwise, they are in addition
@@ -175,6 +180,12 @@ EXAMPLES = r"""
     git: https://github.com/astral-sh/uv
     tag: 0.6.11
 
+- name: Install "starship" Rust package with the profile named C(opt)
+  community.general.cargo:
+    name: starship
+    state: latest
+    profile: opt
+
 - name: Install "starship" Rust package with only the given features
   community.general.cargo:
     name: starship
@@ -182,7 +193,6 @@ EXAMPLES = r"""
     default_features: false
     features:
       - notify
-      - gix-max-perf
 
 - name: Install package with custom CLI args
   community.general.cargo:
@@ -227,6 +237,7 @@ class Cargo:
         self.version = kwargs["version"]
         self.locked = kwargs["locked"]
         self.directory = kwargs["directory"]
+        self.profile = kwargs["profile"]
         self.features = kwargs["features"]
         self.default_features = kwargs["default_features"]
         self.git: dict[str, str] = kwargs["git"]
@@ -364,6 +375,9 @@ class Cargo:
 
         if self.features:
             cmd += ["--features", ",".join(self.features)]
+
+        if self.profile:
+            cmd.extend(["--profile", self.profile])
 
         if not self.default_features:
             cmd.append("--no-default-features")
@@ -545,6 +559,7 @@ def main():
         version=dict(default=None, type="str"),
         locked=dict(default=False, type="bool"),
         directory=dict(default=None, type="path"),
+        profile=dict(default=None, type="str"),
         features=dict(default=[], required=False, type="list", elements="str"),
         default_features=dict(default=True, type="bool"),
         git=dict(
@@ -574,6 +589,7 @@ def main():
     directory = module.params["directory"]
     features = module.params["features"]
     default_features = module.params["default_features"]
+    profile = module.params["profile"]
     git = module.params["git"]
     argv = module.params["argv"]
   
@@ -625,6 +641,7 @@ def main():
             if (package_name not in installed_packages)
             or (version and version != installed_packages[package_name]["version"])
             or (git and git != git_installed_fields.get(package_name))
+            or (profile and profile != installed_packages[package_name]["profile"])
             or (features and features != installed_packages[package_name]["features"])
             or (
                 default_features
@@ -641,6 +658,7 @@ def main():
                 field: module.params.get(field)
                 for field in [
                     "version",
+                    "profile",
                     "features",
                     "default_features",
                     "git",
