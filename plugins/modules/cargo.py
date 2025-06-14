@@ -36,9 +36,10 @@ options:
   name:
     description:
       - The name of a Rust package to install.
+      - When this is omitted, currently installed crates are returned.
     type: list
     elements: str
-    required: true
+    required: false
   path:
     description: The base path where to install the Rust packages. Cargo automatically appends V(/bin). In other words, V(/usr/local)
       becomes V(/usr/local/bin).
@@ -84,6 +85,10 @@ requirements:
 """
 
 EXAMPLES = r"""
+- name: Collect installed crates
+  community.general.cargo:
+  register: cargo_installed
+
 - name: Install "ludusavi" Rust package
   community.general.cargo:
     name: ludusavi
@@ -139,9 +144,7 @@ from ansible.module_utils.basic import AnsibleModule
 __metaclass__ = type
 
 # runtime compatibility with Python < 3.8
-if sys.version_info >= (3, 8):
-    from __future__ import annotations
-
+if sys.version_info >= (3, 9):
     package_type = dict[str, Union[str, dict[str, str]]]
     packages_type = dict[str, package_type]
 else:
@@ -158,7 +161,7 @@ class Cargo:
         self._crates_json = self._cargo_home / ".crates2.json"
 
         self.executable = [kwargs["executable"] or module.get_bin_path("cargo", True)]
-        self.name = kwargs["name"]
+        self.names = kwargs["name"]
         self.path = kwargs["path"]
         self.state = kwargs["state"]
         self.version = kwargs["version"]
@@ -209,7 +212,7 @@ class Cargo:
             pkg_parts = typing.cast(re.Match[str], match).groupdict()
 
             # only return packages which are specified in the module invocation
-            if pkg_parts["name"] not in self.name:
+            if self.names and pkg_parts["name"] not in self.names:
                 continue
 
             pkg_url = pkg_parts.get("url") and urlparse(pkg_parts.get("url"))
@@ -250,7 +253,7 @@ class Cargo:
 
     def install(self, packages: Optional[Collection[str]] = None):
         cmd = ["install"]
-        cmd.extend(packages or self.name)
+        cmd.extend(packages or self.names)
 
         if self.locked:
             cmd.append("--locked")
@@ -334,7 +337,7 @@ class Cargo:
 
     def uninstall(self, packages=None):
         cmd = ["uninstall"]
-        cmd.extend(packages or self.name)
+        cmd.extend(packages or self.names)
         return self._exec(cmd)
 
 
@@ -375,7 +378,7 @@ def _diff_installed_packages(
 def main():
     arg_spec = dict(
         executable=dict(type="path"),
-        name=dict(required=True, type="list", elements="str"),
+        name=dict(required=False, type="list", elements="str"),
         path=dict(type="path"),
         state=dict(default="present", choices=["present", "absent", "latest"]),
         version=dict(type="str"),
@@ -388,13 +391,23 @@ def main():
     state = module.params["state"]
     version = module.params["version"]
     directory = module.params["directory"]
+
     diff = []
+
+    cargo = Cargo(module, **module.params)
+    installed_packages = cargo.get_installed()
+
+    if not names:
+        result = {
+            "changed": False,
+            "invocation": module.params,
+            "installed": installed_packages,
+        }
+
+        module.exit_json(**result)
 
     if module.params.get("bin") and len(names) > 1:
         module.fail_json(msg="Cannot install multiple crates with 'bin'")
-
-    if not names:
-        module.fail_json(msg="Package name must be specified")
 
     if directory is not None and not os.path.isdir(directory):
         module.fail_json(msg="Source directory does not exist")
@@ -404,10 +417,7 @@ def main():
         LANG="C", LC_ALL="C", LC_MESSAGES="C", LC_CTYPE="C"
     )
 
-    cargo = Cargo(module, **module.params)
     out, err = None, None
-
-    installed_packages = cargo.get_installed()
     new_installed_packages = installed_packages.copy()
 
     if state == "present":

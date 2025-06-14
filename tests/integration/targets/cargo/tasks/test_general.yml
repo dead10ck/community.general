@@ -6,9 +6,15 @@
 - debug:
     msg: "{{ lookup('cargo_bins') }}"
 
-- name: no binaries installed
+- name: Get installed packages
+  community.general.cargo:
+  register: pre_install
+
+- name: package not installed
   assert:
-    that: "{{ (lookup('cargo_bins') | length) == 0 }}"
+    that:
+      - pre_install is not changed
+      - "'helloworld' not in pre_install.installed"
 
 - name: Ensure application helloworld is uninstalled
   community.general.cargo:
@@ -19,8 +25,8 @@
 - name: already absent
   assert:
     that:
-      - "{{ (lookup('cargo_bins') | length) == 0 }}"
       - uninstall_absent_helloworld is not changed
+      - "'helloworld' not in uninstall_absent_helloworld.installed"
 
 - name: Install application helloworld
   community.general.cargo:
