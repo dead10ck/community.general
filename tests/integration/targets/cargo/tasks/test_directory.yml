@@ -12,6 +12,10 @@
   vars:
     manifest_path: "{{ temp_directory.path }}/Cargo.toml"
     package_name: hello-world-directory-test
+    init_version: "1.0.0"
+    upgraded_version: "1.0.1"
+    major_version: "2.0.0"
+    unmatched_version: "2.0.1"
   block:
     - name: Initialize package
       ansible.builtin.command:
@@ -19,104 +23,215 @@
       args:
         chdir: "{{ temp_directory.path }}"
 
-    - name: Set package version (1.0.0)
+    - name: Set package version ({{ init_version }})
       ansible.builtin.lineinfile:
         path: "{{ manifest_path }}"
         regexp: '^version = ".*"$'
-        line: 'version = "1.0.0"'
+        line: 'version = "{{ init_version }}"'
 
     - name: Ensure package is uninstalled
       community.general.cargo:
         name: "{{ package_name }}"
         state: absent
         directory: "{{ temp_directory.path }}"
-      register: uninstall_absent
+      register: cargo_result
+
+    - name: Get installed packages
+      community.general.cargo:
+      register: cargo_packages
+
+    - name: directory package not installed
+      assert:
+        that:
+          - cargo_result is not changed
+          - cargo_result is success
+          - package_name not in cargo_packages.installed
 
     - name: Install package
       community.general.cargo:
         name: "{{ package_name }}"
         directory: "{{ temp_directory.path }}"
-      register: install_absent
+      register: cargo_result
 
-    - name: Change package version (1.0.1)
+    - name: Get installed packages
+      community.general.cargo:
+      register: cargo_packages
+
+    - name: directory package installed
+      assert:
+        that:
+          - cargo_result is changed
+          - package_name in cargo_packages.installed
+          - cargo_packages.installed[package_name].version == init_version
+          - cargo_packages.installed[package_name].directory == temp_directory.path
+
+    - name: Install package (idempotent)
+      community.general.cargo:
+        name: "{{ package_name }}"
+        directory: "{{ temp_directory.path }}"
+      register: cargo_result
+
+    - name: Get installed packages
+      community.general.cargo:
+      register: cargo_packages
+
+    - name: directory package installed (idempotent)
+      assert:
+        that:
+          - cargo_result is not changed
+          - cargo_result is success
+          - package_name in cargo_packages.installed
+          - cargo_packages.installed[package_name].version == init_version
+          - cargo_packages.installed[package_name].directory == temp_directory.path
+
+    - name: Change package version ({{ upgraded_version }})
       ansible.builtin.lineinfile:
         path: "{{ manifest_path }}"
         regexp: '^version = ".*"$'
-        line: 'version = "1.0.1"'
+        line: 'version = "{{ upgraded_version }}"'
 
     - name: Install package again (present)
       community.general.cargo:
         name: "{{ package_name }}"
         state: present
         directory: "{{ temp_directory.path }}"
-      register: install_present_state
+      register: cargo_result
+
+    - name: Get installed packages
+      community.general.cargo:
+      register: cargo_packages
+
+    - name: directory package installed (present not upgraded)
+      assert:
+        that:
+          - cargo_result is not changed
+          - cargo_result is success
+          - package_name in cargo_packages.installed
+          - cargo_packages.installed[package_name].version == init_version
+          - cargo_packages.installed[package_name].directory == temp_directory.path
 
     - name: Install package again (latest)
       community.general.cargo:
         name: "{{ package_name }}"
         state: latest
         directory: "{{ temp_directory.path }}"
-      register: install_latest_state
+      register: cargo_result
 
-    - name: Change package version (2.0.0)
+    - name: Get installed packages
+      community.general.cargo:
+      register: cargo_packages
+
+    - name: directory package upgraded latest
+      assert:
+        that:
+          - cargo_result is changed
+          - package_name in cargo_packages.installed
+          - cargo_packages.installed[package_name].version == upgraded_version
+          - cargo_packages.installed[package_name].directory == temp_directory.path
+
+    - name: Change package version ({{ major_version }})
       ansible.builtin.lineinfile:
         path: "{{ manifest_path }}"
         regexp: '^version = ".*"$'
-        line: 'version = "2.0.0"'
+        line: 'version = "{{ major_version }}"'
 
     - name: Install package with given version (matched)
       community.general.cargo:
         name: "{{ package_name }}"
-        version: "2.0.0"
+        version: "{{ major_version }}"
         directory: "{{ temp_directory.path }}"
-      register: install_given_version_matched
+      register: cargo_result
+
+    - name: Get installed packages
+      community.general.cargo:
+      register: cargo_packages
+
+    - name: Install package with given version (matched)
+      assert:
+        that:
+          - cargo_result is changed
+          - package_name in cargo_packages.installed
+          - cargo_packages.installed[package_name].version == major_version
+          - cargo_packages.installed[package_name].directory == temp_directory.path
 
     - name: Install package with given version (unmatched)
       community.general.cargo:
         name: "{{ package_name }}"
-        version: "2.0.1"
+        version: "{{ unmatched_version }}"
         directory: "{{ temp_directory.path }}"
-      register: install_given_version_unmatched
       ignore_errors: true
+      register: cargo_result
+
+    - name: Get installed packages
+      community.general.cargo:
+      register: cargo_packages
+
+    - name: Install package with given version (unmatched)
+      assert:
+        that:
+          - cargo_result is not changed
+          - cargo_result is failed
+          - package_name in cargo_packages.installed
+          - cargo_packages.installed[package_name].version == major_version
+          - cargo_packages.installed[package_name].directory == temp_directory.path
 
     - name: Uninstall package
       community.general.cargo:
         name: "{{ package_name }}"
         state: absent
         directory: "{{ temp_directory.path }}"
-      register: uninstall_present
+      register: cargo_result
+
+    - name: Get installed packages
+      community.general.cargo:
+      register: cargo_packages
+
+    - name: uninstall directory package
+      assert:
+        that:
+          - cargo_result is changed
+          - package_name not in cargo_packages.installed
 
     - name: Install non-existant package
       community.general.cargo:
         name: "{{ package_name }}-non-existant"
         state: present
         directory: "{{ temp_directory.path }}"
-      register: install_non_existant
       ignore_errors: true
+      register: cargo_result
+
+    - name: Get installed packages
+      community.general.cargo:
+      register: cargo_packages
+
+    - name: non-existent package
+      assert:
+        that:
+          - cargo_result is not changed
+          - cargo_result is failed
+          - package_name not in cargo_packages.installed
 
     - name: Install non-existant source directory
       community.general.cargo:
         name: "{{ package_name }}"
         state: present
         directory: "{{ temp_directory.path }}/non-existant"
-      register: install_non_existant_source
       ignore_errors: true
+      register: cargo_result
+
+    - name: Get installed packages
+      community.general.cargo:
+      register: cargo_packages
+
+    - name: non-existent package
+      assert:
+        that:
+          - cargo_result is not changed
+          - cargo_result is failed
+          - package_name not in cargo_packages.installed
 
   always:
     - name: Remove temp directory
       file:
         path: "{{ temp_directory.path }}"
         state: absent
-
-- name: Check assertions
-  assert:
-    that:
-      - uninstall_absent is not changed
-      - install_absent is changed
-      - install_present_state is not changed
-      - install_latest_state is changed
-      - install_given_version_matched is changed
-      - install_given_version_unmatched is failed
-      - uninstall_present is changed
-      - install_non_existant is failed
-      - install_non_existant_source is failed

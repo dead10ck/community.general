@@ -3,46 +3,73 @@
 # GNU General Public License v3.0+ (see LICENSES/GPL-3.0-or-later.txt or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-- debug:
-    msg: "{{ lookup('cargo_bins') }}"
+- name: Get installed packages
+  community.general.cargo:
+  register: cargo_packages
 
-- name: no binaries installed
+- name: package not installed
   assert:
-    that: "{{ (lookup('cargo_bins') | length) == 0 }}"
+    that:
+      - "'helloworld' not in cargo_packages.installed"
 
 - name: Ensure application helloworld is uninstalled
   community.general.cargo:
     state: absent
     name: helloworld
-  register: uninstall_absent_helloworld
+  register: cargo_result
+
+- name: Get installed packages
+  community.general.cargo:
+  register: cargo_packages
 
 - name: already absent
   assert:
     that:
-      - "{{ (lookup('cargo_bins') | length) == 0 }}"
-      - uninstall_absent_helloworld is not changed
+      - cargo_result is not changed
+      - "'helloworld' not in cargo_packages.installed"
 
 - name: Install application helloworld
   community.general.cargo:
     name: helloworld
-  register: install_absent_helloworld
+  register: cargo_result
+
+- name: Get installed packages
+  community.general.cargo:
+  register: cargo_packages
+
+- name: installed
+  assert:
+    that:
+      - cargo_result is changed
+      - "'helloworld' in cargo_packages.installed"
 
 - name: Install application helloworld again
   community.general.cargo:
     name: helloworld
-  register: install_present_helloworld
-  ignore_errors: true
+  register: cargo_result
+
+- name: Get installed packages
+  community.general.cargo:
+  register: cargo_packages
+
+- name: already installed
+  assert:
+    that:
+      - cargo_result is not changed
+      - "'helloworld' in cargo_packages.installed"
 
 - name: Uninstall application helloworld
   community.general.cargo:
     state: absent
     name: helloworld
-  register: uninstall_present_helloworld
+  register: cargo_result
 
-- name: Check assertions helloworld
+- name: Get installed packages
+  community.general.cargo:
+  register: cargo_packages
+
+- name: uninstalled
   assert:
     that:
-      - uninstall_absent_helloworld is not changed
-      - install_absent_helloworld is changed
-      - install_present_helloworld is not changed
-      - uninstall_present_helloworld is changed
+      - cargo_result is changed
+      - "'helloworld' not in cargo_packages.installed"
