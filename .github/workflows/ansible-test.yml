@@ -7,7 +7,7 @@
 # https://github.com/marketplace/actions/ansible-test
 
 name: EOL CI
-"on":
+on:
   # Run EOL CI against all pushes (direct commits, also merged PRs), Pull Requests
   push:
     branches:
@@ -16,6 +16,10 @@ name: EOL CI
       - test/*
   pull_request:
   workflow_dispatch:
+    inputs:
+      target:
+        type: string
+        description: test target
 
 concurrency:
   # Make sure there is at most one active run per PR, but do not cancel any non-PR runs
@@ -25,6 +29,7 @@ concurrency:
 jobs:
   sanity:
     name: EOL Sanity (Ⓐ${{ matrix.ansible }})
+    if: ${{ inputs.target == '' }}
     strategy:
       matrix:
         ansible:
@@ -45,6 +50,7 @@ jobs:
   units:
     runs-on: ubuntu-latest
     name: EOL Units (Ⓐ${{ matrix.ansible }}+py${{ matrix.python }})
+    if: ${{ inputs.target == '' }}
     strategy:
       # As soon as the first unit test fails, cancel the others to free up the CI queue
       fail-fast: true
@@ -170,6 +176,6 @@ jobs:
             ;
             git clone --depth=1 --single-branch https://github.com/ansible-collections/community.internal_test_tools.git ../../community/internal_test_tools
           pull-request-change-detection: 'true'
-          target: ${{ matrix.target }}
+          target: ${{ inputs.target && inputs.target || matrix.target }}
           target-python-version: ${{ matrix.python }}
           testing-type: integration
