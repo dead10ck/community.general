@@ -1,39 +1,28 @@
 [build-system]
-build-backend = "hatchling.build"
-requires = [ "hatchling" ]
+build-backend = "uv_build"
+requires = [ "uv_build~=0.7" ]
 
 [project]
 name = "community.general"
 version = "1.0.0"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 
 dependencies = [
-  "ansible",
+  "ansible-core",
 ]
 
 [dependency-groups]
 dev = [
+  "nox",
+  "antsibull-nox",
   "yamllint",
 ]
 
-[tool.hatch.build.targets.wheel]
-include = ["*.py"]
+[tool.uv]
+package = false
 
-[tool.hatch.envs.default]
-installer = "uv"
-path = ".venv"
-
-post-install-commands = [
-  "uv sync",
-]
-
-[tool.hatch.envs.default.env-vars]
-UV_PROJECT_ENVIRONMENT = ".venv"
-
-[tool.hatch.envs.hatch-uv]
-dependencies = [
-  "uv>=0.6.5",
-]
+[tool.uv.sources]
+ansible-core = { path = "/data/data/com.termux/files/home/src/ansible/ansible" }
 
 [tool.ruff.lint]
 ignore = [
