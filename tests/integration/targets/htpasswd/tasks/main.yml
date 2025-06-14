@@ -5,8 +5,12 @@
 
 - name: install passlib
   ansible.builtin.pip:
-    name: passlib
-  notify: remove passlib
+    name:
+      - passlib
+
+      # [TODO] passlib seems to be abandoned, and breaks with bcrypt >=5
+      # https://foss.heptapod.net/python-libs/passlib/-/issues/196
+      - bcrypt<5
 
 - name: add bob (check mode)
   community.general.htpasswd:
