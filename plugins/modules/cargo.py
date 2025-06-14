@@ -30,9 +30,10 @@ options:
   name:
     description:
       - The name of a Rust package to install.
+      - When this is omitted, currently installed crates are returned.
     type: list
     elements: str
-    required: true
+    required: false
   path:
     description: The base path where to install the Rust packages. Cargo automatically appends V(/bin). In other words, V(/usr/local)
       becomes V(/usr/local/bin).
@@ -73,6 +74,10 @@ requirements:
 """
 
 EXAMPLES = r"""
+- name: Collect installed crates
+  community.general.cargo:
+  register: cargo_installed
+
 - name: Install "ludusavi" Rust package
   community.general.cargo:
     name: ludusavi
@@ -126,6 +131,15 @@ from urllib.parse import urlparse
 from ansible.module_utils.basic import AnsibleModule
 
 
+# runtime compatibility with Python < 3.8
+if sys.version_info >= (3, 9):
+    package_type = dict[str, Union[str, dict[str, str]]]
+    packages_type = dict[str, package_type]
+else:
+    package_type = dict
+    packages_type = dict
+
+
 class Cargo:
     def __init__(self, module: AnsibleModule, **kwargs):
         self.module = module
@@ -135,7 +149,7 @@ class Cargo:
         self._crates_json = self._cargo_home / ".crates2.json"
 
         self.executable = [kwargs["executable"] or module.get_bin_path("cargo", True)]
-        self.name = kwargs["name"]
+        self.names = kwargs["name"]
         self.path = kwargs["path"]
         self.state = kwargs["state"]
         self.version = kwargs["version"]
@@ -171,9 +185,7 @@ class Cargo:
             crates = json.load(crates_f)["installs"]
 
         # see https://doc.rust-lang.org/cargo/reference/pkgid-spec.html
-        pkgspec_pattern = re.compile(
-            r"(?P<name>[^ ]+) +(?P<version>[^ ]+) +\((?P<kind>[^+]+)\+(?P<url>[^)]+)\)"
-        )
+        pkgspec_pattern = re.compile(r"(?P<name>[^ ]+) +(?P<version>[^ ]+) +\((?P<kind>[^+]+)\+(?P<url>[^)]+)\)")
 
         installed = {}
 
@@ -183,10 +195,10 @@ class Cargo:
             if not match:
                 self.module.fail_json(msg=f"unexpected format: '{pkgid}'")
 
-            pkg_parts = typing.cast(re.Match[str], match).groupdict()
+            pkg_parts = match.groupdict()
 
             # only return packages which are specified in the module invocation
-            if pkg_parts["name"] not in self.name:
+            if self.names and pkg_parts["name"] not in self.names:
                 continue
 
             pkg_url = pkg_parts.get("url") and urlparse(pkg_parts.get("url"))
@@ -195,9 +207,7 @@ class Cargo:
                 pkg_parts["directory"] = pkg_url.path
 
             if not isinstance(meta, dict):
-                self.module.fail_json(
-                    msg=f"unexpected metadata in {self._crates_json}: '{meta}'"
-                )
+                self.module.fail_json(msg=f"unexpected metadata in {self._crates_json}: '{meta}'")
 
             no_default_features = meta.pop("no_default_features", False)
             meta["default_features"] = not no_default_features
@@ -211,9 +221,7 @@ class Cargo:
                     continue
 
                 stats = os.stat(bin_path)
-                stat_obj = {
-                    k: getattr(stats, k) for k in dir(stats) if k.startswith("st_")
-                }
+                stat_obj = {k: getattr(stats, k) for k in dir(stats) if k.startswith("st_")}
                 bin_stats[bin] = stat_obj
 
             if bin_stats:
@@ -227,7 +235,7 @@ class Cargo:
 
     def install(self, packages: Optional[Collection[str]] = None):
         cmd = ["install"]
-        cmd.extend(packages or self.name)
+        cmd.extend(packages or self.names)
 
         if self.locked:
             cmd.append("--locked")
@@ -268,15 +276,11 @@ class Cargo:
         match = re.search(r'"(.+)"', data)
 
         if not match:
-            self.module.fail_json(
-                msg=f"No published version for package '{package['name']}' found"
-            )
+            self.module.fail_json(msg=f"No published version for package '{package['name']}' found")
 
         return package | {"version": typing.cast(re.Match, match).group(1)}
 
-    def get_source_directory_version(
-        self, installed_package: package_type
-    ) -> package_type:
+    def get_source_directory_version(self, installed_package: package_type) -> package_type:
         cmd = [
             "metadata",
             "--format-version",
@@ -290,11 +294,7 @@ class Cargo:
         manifest = json.loads(data)
 
         directory_package = next(
-            (
-                pkg
-                for pkg in manifest["packages"]
-                if pkg["name"] == installed_package["name"]
-            ),
+            (pkg for pkg in manifest["packages"] if pkg["name"] == installed_package["name"]),
             None,
         )
 
@@ -311,13 +311,11 @@ class Cargo:
 
     def uninstall(self, packages=None):
         cmd = ["uninstall"]
-        cmd.extend(packages or self.name)
+        cmd.extend(packages or self.names)
         return self._exec(cmd)
 
 
-def _diff_installed_packages(
-    before: packages_type, after: packages_type
-) -> list[dict[str, Optional[package_type]]]:
+def _diff_installed_packages(before: packages_type, after: packages_type) -> list[dict[str, Optional[package_type]]]:
     union = []
 
     for package in list(before.values()) + list(after.values()):
@@ -352,7 +350,7 @@ def _diff_installed_packages(
 def main():
     arg_spec = dict(
         executable=dict(type="path"),
-        name=dict(required=True, type="list", elements="str"),
+        name=dict(required=False, type="list", elements="str"),
         path=dict(type="path"),
         state=dict(default="present", choices=["present", "absent", "latest"]),
         version=dict(type="str"),
@@ -365,13 +363,23 @@ def main():
     state = module.params["state"]
     version = module.params["version"]
     directory = module.params["directory"]
+
     diff = []
+
+    cargo = Cargo(module, **module.params)
+    installed_packages = cargo.get_installed()
+
+    if not names:
+        result = {
+            "changed": False,
+            "invocation": module.params,
+            "installed": installed_packages,
+        }
+
+        module.exit_json(**result)
 
     if module.params.get("bin") and len(names) > 1:
         module.fail_json(msg="Cannot install multiple crates with 'bin'")
-
-    if not names:
-        module.fail_json(msg="Package name must be specified")
 
     if directory is not None and not os.path.isdir(directory):
         module.fail_json(msg="Source directory does not exist")
@@ -379,10 +387,7 @@ def main():
     # Set LANG env since we parse stdout
     module.run_command_environ_update = dict(LANG="C", LC_ALL="C", LC_MESSAGES="C", LC_CTYPE="C")
 
-    cargo = Cargo(module, **module.params)
     out, err = None, None
-
-    installed_packages = cargo.get_installed()
     new_installed_packages = installed_packages.copy()
 
     if state == "present":
@@ -411,9 +416,7 @@ def main():
                     # if it is not installed and we don't specify a version,
                     # we can fetch the latest version to provide a fuller diff
                     if package_name not in installed_packages and not version:
-                        after_package = package_params | cargo.get_latest(
-                            {"name": package_name}
-                        )
+                        after_package = package_params | cargo.get_latest({"name": package_name})
                     else:
                         before_package = installed_packages.get(package_name)
                         after_package = before_package | package_params
@@ -432,9 +435,7 @@ def main():
             out, err = cargo.install(names)
             new_installed_packages = cargo.get_installed()
     elif state == "absent":
-        to_uninstall = [
-            package_name for package_name in names if package_name in installed_packages
-        ]
+        to_uninstall = [package_name for package_name in names if package_name in installed_packages]
 
         if to_uninstall:
             out, err = cargo.uninstall(to_uninstall)

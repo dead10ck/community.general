@@ -3,48 +3,116 @@
 # GNU General Public License v3.0+ (see LICENSES/GPL-3.0-or-later.txt or https://www.gnu.org/licenses/gpl-3.0.txt)
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+- name: Get installed packages
+  community.general.cargo:
+  register: cargo_packages
+
+- name: package not installed
+  assert:
+    that:
+      - "'helloworld-yliu' not in cargo_packages.installed"
+
 - name: Install application helloworld-yliu 0.1.0
   community.general.cargo:
     name: helloworld-yliu
     version: 0.1.0
-  register: install_helloworld_010
+  register: cargo_result
+
+- name: Get installed packages
+  community.general.cargo:
+  register: cargo_packages
+
+- name: package installed
+  assert:
+    that:
+      - cargo_result is changed
+      - "'helloworld-yliu' in cargo_packages.installed"
+      - cargo_packages.installed['helloworld-yliu'].version == '0.1.0'
 
 - name: Install application helloworld-yliu 0.1.0 (idempotent)
   community.general.cargo:
     name: helloworld-yliu
     version: 0.1.0
-  register: install_helloworld_010_idem
+  register: cargo_result
 
-- name: Upgrade helloworld-yliu 0.1.0
+- name: Get installed packages
+  community.general.cargo:
+  register: cargo_packages
+
+- name: package already installed
+  assert:
+    that:
+      - cargo_result is not changed
+      - cargo_result is success
+      - "'helloworld-yliu' in cargo_packages.installed"
+      - cargo_packages.installed['helloworld-yliu'].version == '0.1.0'
+
+- name: Upgrade helloworld-yliu 0.1.0 to latest
   community.general.cargo:
     name: helloworld-yliu
     state: latest
-  register: upgrade_helloworld_010
+  register: cargo_result
+
+- name: Get installed packages
+  community.general.cargo:
+  register: cargo_packages
+
+- name: upgraded
+  assert:
+    that:
+      - cargo_result is changed
+      - "'helloworld-yliu' in cargo_packages.installed"
+      - cargo_packages.installed['helloworld-yliu'].version is version('0.1.0', '>')
 
 - name: Upgrade helloworld-yliu 0.1.0 (idempotent)
   community.general.cargo:
     name: helloworld-yliu
     state: latest
-  register: upgrade_helloworld_010_idem
+  register: cargo_result
+
+- name: Get installed packages
+  community.general.cargo:
+  register: cargo_packages
+
+- name: upgraded (idempotent)
+  assert:
+    that:
+      - cargo_result is not changed
+      - cargo_result is success
+      - "'helloworld-yliu' in cargo_packages.installed"
+      - cargo_packages.installed['helloworld-yliu'].version is version('0.1.0', '>')
 
 - name: Downgrade helloworld-yliu 0.1.0
   community.general.cargo:
     name: helloworld-yliu
     version: 0.1.0
-  register: downgrade_helloworld_010
+  register: cargo_result
+
+- name: Get installed packages
+  community.general.cargo:
+  register: cargo_packages
+
+- name: downgrade
+  assert:
+    that:
+      - cargo_result is changed
+      - "'helloworld-yliu' in cargo_packages.installed"
+      - cargo_packages.installed['helloworld-yliu'].version == '0.1.0'
 
 - name: Downgrade helloworld-yliu 0.1.0 (idempotent)
   community.general.cargo:
     name: helloworld-yliu
     version: 0.1.0
-  register: downgrade_helloworld_010_idem
+  register: cargo_packages
 
-- name: Check assertions helloworld-yliu
+- name: Get installed packages
+  community.general.cargo:
+  register: cargo_packages
+
+- name: downgrade
   assert:
     that:
-      - install_helloworld_010 is changed
-      - install_helloworld_010_idem is not changed
-      - upgrade_helloworld_010 is changed
-      - upgrade_helloworld_010_idem is not changed
-      - downgrade_helloworld_010 is changed
-      - downgrade_helloworld_010_idem is not changed
+      - cargo_result is not changed
+      - cargo_result is success
+      - "'helloworld-yliu' in cargo_packages.installed"
+      - cargo_packages.installed['helloworld-yliu'].version == '0.1.0'
