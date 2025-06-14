@@ -13,11 +13,8 @@ name: EOL CI
     branches:
       - main
       - stable-*
-      - cargo-test
+      - test/*
   pull_request:
-  # Run EOL CI once per day (at 08:00 UTC)
-  schedule:
-    - cron: '0 8 * * *'
   workflow_dispatch:
 
 concurrency:
