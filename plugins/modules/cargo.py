@@ -208,12 +208,11 @@ import re
 import sys
 import typing
 from pathlib import Path
-from typing import Collection, Optional, Tuple, Union
+from typing import Collection, Optional, Union
 from urllib.parse import parse_qs, urlparse
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.common.text.converters import to_text
-
 
 # runtime compatibility with Python < 3.8
 if sys.version_info >= (3, 9):
@@ -257,7 +256,7 @@ class Cargo:
             self.module.fail_json(msg=f"Path {path} is not a directory")
         self._path = path
 
-    def _exec(self, args, run_in_check_mode=False, check_rc=True) -> Tuple[str, str]:
+    def _exec(self, args, run_in_check_mode=False, check_rc=True) -> tuple[str, str]:
         if not self.module.check_mode or (self.module.check_mode and run_in_check_mode):
             cmd = self.executable + args
             rc, out, err = self.module.run_command(cmd, check_rc=check_rc)
@@ -299,11 +298,7 @@ class Cargo:
             elif pkg_parts.get("kind") == "git":
                 git_meta: dict[str, str] = {}
 
-                pkg_url_query = (
-                    pkg_url
-                    and pkg_url.query
-                    and typing.cast(dict[str, list[str]], parse_qs(pkg_url.query))
-                )
+                pkg_url_query = pkg_url and pkg_url.query and typing.cast(dict[str, list[str]], parse_qs(pkg_url.query))
 
                 # this populates `tag`
                 if pkg_url_query and isinstance(pkg_url_query, dict):
@@ -318,9 +313,7 @@ class Cargo:
                     git_meta["rev"] = to_text(pkg_url.fragment)
 
                 if not git_meta:
-                    self.module.fail_json(
-                        msg=f"unexpected git package identifier: {pkg_url}"
-                    )
+                    self.module.fail_json(msg=f"unexpected git package identifier: {pkg_url}")
 
                 pkg_parts["git"] = git_meta
 
@@ -380,9 +373,7 @@ class Cargo:
 
         if self.git:
             if (packages and len(packages) > 1) or len(self.names) > 1:
-                self.module.fail_json(
-                    msg="Cannot do multiple git installs at a time. Please specify only one package."
-                )
+                self.module.fail_json(msg="Cannot do multiple git installs at a time. Please specify only one package.")
 
             cmd.extend(["--git", self.git["url"]])
 
@@ -479,23 +470,15 @@ class Cargo:
         out = out.strip()
 
         if not out:
-            self.module.fail_json(
-                msg=f"remote {self.git['url']} does not have ref: {ref}"
-            )
+            self.module.fail_json(msg=f"remote {self.git['url']} does not have ref: {ref}")
 
         out_parts = out.strip().split("\t")
 
         if len(out_parts) != 2:
-            self.module.fail_json(
-                msg=f"got unexpected output from git ls-remote: {out}"
-            )
+            self.module.fail_json(msg=f"got unexpected output from git ls-remote: {out}")
 
         latest_rev = out_parts[0]
-        return package | {
-            "git": (
-                {key: val for key, val in self.git.items() if val} | {"rev": latest_rev}
-            )
-        }
+        return package | {"git": ({key: val for key, val in self.git.items() if val} | {"rev": latest_rev})}
 
     def uninstall(self, packages=None):
         cmd = ["uninstall"]
@@ -615,9 +598,7 @@ def main():
             package_name: (
                 {
                     key: val
-                    for key, val in installed_packages[package_name]
-                    .get("git", {})
-                    .items()
+                    for key, val in installed_packages[package_name].get("git", {}).items()
                     if package_name in installed_packages and key in git_fields
                 }
             )
@@ -632,11 +613,7 @@ def main():
             or (git and git != git_installed_fields.get(package_name))
             or (profile and profile != installed_packages[package_name]["profile"])
             or (features and features != installed_packages[package_name]["features"])
-            or (
-                default_features
-                and default_features
-                != installed_packages[package_name]["default_features"]
-            )
+            or (default_features and default_features != installed_packages[package_name]["default_features"])
             or argv
         ]
 
@@ -708,9 +685,7 @@ def main():
     }
 
     if argv:
-        result["warnings"] = result.get("warnings", []) + [
-            "changes are always assumed when using argv"
-        ]
+        result["warnings"] = result.get("warnings", []) + ["changes are always assumed when using argv"]
 
     if module._diff:
         # Remove `bin_stats` from the returned diff. They are too verbose

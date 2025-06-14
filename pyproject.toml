@@ -8,7 +8,7 @@ version = "1.0.0"
 requires-python = ">=3.8"
 
 dependencies = [
-  "ansible",
+  "ansible-core",
 ]
 
 [dependency-groups]
@@ -18,6 +18,9 @@ dev = [
 
 [tool.uv]
 package = false
+
+[tool.ruff]
+target-version = "py38"
 
 [tool.ruff.lint]
 ignore = [
