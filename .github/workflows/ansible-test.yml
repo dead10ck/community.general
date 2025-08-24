@@ -13,6 +13,8 @@ name: EOL CI
     branches:
       - main
       - stable-*
+      - test/*
+      - fix/*
   pull_request:
   # Run EOL CI once per day (at 08:00 UTC)
   schedule:
@@ -58,11 +60,11 @@ jobs:
           - ansible: ''
         include:
           - ansible: '2.16'
-            python: '2.7'
-          - ansible: '2.16'
-            python: '3.6'
+            python: '3.10'
           - ansible: '2.16'
             python: '3.11'
+          - ansible: '2.16'
+            python: '3.12'
 
     steps:
       - name: >-
